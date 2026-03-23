@@ -60,7 +60,7 @@ if st.button("🚀 Gap 분석 시작"):
                 brand_text += extract_url_text(url_input)
             
             # AI에게 보낼 프롬프트 구성
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-pro') # Pro 모델로 변경!
             
             prompt = f"""
             당신은 10년차 베테랑 광고 전략가입니다. 아래 데이터를 바탕으로 Gap 분석을 수행하세요.
