@@ -8,9 +8,9 @@ from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 
 # --- 기본 설정 ---
-st.set_page_config(page_title="GapFinder AI v2.6", layout="wide")
+st.set_page_config(page_title="GapFinder AI v2.7", layout="wide")
 
-# 세션 데이터 초기화 (페이지 이동 시 데이터 보존)
+# 데이터 초기화
 if 'brand_text_combined' not in st.session_state:
     st.session_state['brand_text_combined'] = ""
 if 'consumer_data_list' not in st.session_state:
@@ -25,111 +25,87 @@ with st.sidebar:
 
 # --- 데이터 추출 함수들 ---
 def read_pptx(file):
-    prs = Presentation(file)
-    text = ""
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if hasattr(shape, "text"):
-                text += shape.text + "\n"
-    return text
+    try:
+        prs = Presentation(file)
+        return "\n".join([shape.text for slide in prs.slides for shape in slide.shapes if hasattr(shape, "text")])
+    except: return "PPT 읽기 실패"
 
 def read_xlsx(file):
-    df = pd.read_excel(file)
-    return df.to_string()
+    try: return pd.read_excel(file).to_string()
+    except: return "엑셀 읽기 실패"
 
 def read_pdf(file):
-    reader = PdfReader(file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() + "\n"
-    return text
+    try: return "\n".join([page.extract_text() for page in PdfReader(file).pages])
+    except: return "PDF 읽기 실패"
 
 def read_url(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers, timeout=5)
-        res.raise_for_status()
         soup = BeautifulSoup(res.text, 'html.parser')
         for s in soup(['script', 'style']): s.decompose()
         return soup.get_text()[:5000]
-    except Exception as e:
-        return f"\nhttps://www.youtube.com/watch?v=HZEKNrUVl9o\n"
+    except: return "URL 읽기 실패"
 
-# --- [Step 1: 데이터 수집 페이지] ---
+# --- [Step 1: 데이터 수집] ---
 if page == "Step 1: 데이터 수집":
     st.title("📂 브랜드 & 소비자 데이터 수집")
-    st.info("브랜드 내부 자료와 웹상의 소비자 데이터를 한 곳에 모으세요.")
-    
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("🏢 브랜드 데이터 (내부 자료)")
+        st.subheader("🏢 브랜드 데이터")
         uploaded_files = st.file_uploader("파일 업로드 (PDF, PPTX, XLSX)", type=["pdf", "pptx", "xlsx"], accept_multiple_files=True)
-        brand_url = st.text_input("브랜드 사이트/상세페이지 URL 입력")
+        brand_url = st.text_input("브랜드 사이트 URL")
         
-        if st.button("모든 브랜드 데이터 통합 저장"):
-            with st.spinner("데이터 추출 중..."):
-                combined_all_text = ""
-                # 파일 처리
-                for file in uploaded_files:
-                    if file.name.endswith(".pdf"): combined_all_text += read_pdf(file)
-                    elif file.name.endswith(".pptx"): combined_all_text += read_pptx(file)
-                    elif file.name.endswith(".xlsx"): combined_all_text += read_xlsx(file)
-                # URL 처리
-                if brand_url:
-                    url_text = read_url(brand_url)
-                    combined_all_text += f"\n\n[웹사이트 내용]\n{url_text}"
-                
-                st.session_state['brand_text_combined'] = combined_all_text
-                st.success(f"총 {len(uploaded_files)}개의 파일과 웹사이트 데이터가 저장되었습니다!")
+        if st.button("데이터 통합 저장"):
+            combined = ""
+            for f in uploaded_files:
+                if f.name.endswith(".pdf"): combined += read_pdf(f)
+                elif f.name.endswith(".pptx"): combined += read_pptx(f)
+                elif f.name.endswith(".xlsx"): combined += read_xlsx(f)
+            if brand_url: combined += f"\n\n[웹사이트]\n{read_url(brand_url)}"
+            st.session_state['brand_text_combined'] = combined
+            st.success("브랜드 데이터 저장 완료!")
 
     with col2:
-        st.subheader("👥 소비자 데이터 (외부 트렌드)")
-        keyword = st.text_input("검색 키워드 (예: '무선이어폰 불편한 점')")
-        if st.button("실시간 웹 크롤링 시작"):
-            if not keyword:
-                st.warning("키워드를 입력해주세요.")
-            else:
-                with st.spinner("수집 중..."):
-                    try:
-                        with DDGS() as ddgs:
-                            results = [r for r in ddgs.text(keyword, max_results=10)]
-                            st.session_state['consumer_data_list'] = results
-                            st.success(f"'{keyword}' 관련 소비자 데이터 10건 수집 완료!")
-                    except Exception as e:
-                        st.error(f"크롤링 중 오류 발생: {e}")
+        st.subheader("👥 소비자 트렌드")
+        keyword = st.text_input("검색어 (예: '무선이어폰 단점')")
+        if st.button("실시간 크롤링"):
+            with st.spinner("수집 중..."):
+                try:
+                    with DDGS() as ddgs:
+                        st.session_state['consumer_data_list'] = [r for r in ddgs.text(keyword, max_results=10)]
+                        st.success("소비자 데이터 수집 완료!")
+                except Exception as e: st.error(f"오류: {e}")
 
-    # 데이터 현황 대시보드
     st.divider()
-    st.subheader("📋 현재 수집 현황")
-    c1, c2 = st.columns(2)
-    with c1:
-        status = "✅ 수집됨" if st.session_state['brand_text_combined'] else "❌ 미수집"
-        st.metric("브랜드 데이터", status)
-        if st.session_state['brand_text_combined']:
-            with st.expander("브랜드 데이터 미리보기"):
-                st.write(st.session_state['brand_text_combined'][:1000] + "...")
-    with c2:
-        st.metric("소비자 데이터", f"{len(st.session_state['consumer_data_list'])} 건")
-        if st.session_state['consumer_data_list']:
-            with st.expander("소비자 Raw Data 보기"):
-                st.table(pd.DataFrame(st.session_state['consumer_data_list'])[['title', 'body']])
+    if st.session_state['brand_text_combined'] or st.session_state['consumer_data_list']:
+        st.subheader("📋 수집 현황")
+        st.write(f"- 브랜드 데이터: {len(st.session_state['brand_text_combined'])}자 확보")
+        st.write(f"- 소비자 데이터: {len(st.session_state['consumer_data_list'])}건 확보")
 
-# --- [Step 2: Gap 분석 페이지] ---
+# --- [Step 2: Gap 분석 리포트] ---
 elif page == "Step 2: Gap 분석 리포트":
     st.title("🧠 AI 심층 Gap 분석")
-    
     if not st.session_state['brand_text_combined'] or not st.session_state['consumer_data_list']:
-        st.warning("Step 1에서 데이터를 먼저 수집한 뒤 이동해주세요!")
+        st.warning("Step 1에서 데이터를 먼저 수집해주세요.")
     else:
         if st.button("🚀 전략 도출 시작"):
-            if not api_key:
-                st.error("사이드바에 Gemini API Key를 입력해주세요.")
+            if not api_key: st.error("API Key를 입력하세요.")
             else:
-                with st.spinner("Gemini 3가 분석 리포트를 작성 중입니다..."):
+                with st.spinner("분석 중..."):
                     try:
                         client = genai.Client(api_key=api_key)
-                        consumer_raw = "\n".join([f"- {d['title']}: {d['body']}" for d in st.session_state['consumer_data_list']])
+                        # 에러 방지를 위해 문자열을 아주 안전하게 합칩니다.
+                        c_raw = ""
+                        for d in st.session_state['consumer_data_list']:
+                            c_raw += f"제목: {d['title']}\n내용: {d['body']}\n\n"
                         
-                        prompt = f"""
-                        당신은 광고 대행사의 시니어 브랜드 전략가입니다. 아래 데이터를 심층 분석하세요.
+                        # 프롬프트 구성 (에러 유발 가능성 차단)
+                        instructions = "당신은 광고 대행사 전략가입니다. 브랜드 데이터와 소비자 데이터를 비교해 간극을 분석하고 광고 카피 3개를 제안하세요."
+                        final_prompt = instructions + "\n\n[브랜드 데이터]\n" + st.session_state['brand_text_combined'][:7000] + "\n\n[소비자 데이터]\n" + c_raw
+                        
+                        response = client.models.generate_content(model="gemini-3-flash-preview", contents=final_prompt)
+                        st.markdown("---")
+                        st.markdown(response.text)
+                    except Exception as e: st.error(f"분석 실패: {e}")
