@@ -1,7 +1,9 @@
 streamlit
 google-genai
 PyPDF2
+python-pptx
+pandas
+openpyxl
 requests
 beautifulsoup4
-pandas
 duckduckgo-search
