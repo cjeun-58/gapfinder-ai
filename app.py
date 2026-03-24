@@ -11,7 +11,7 @@ import time
 import os
 
 # --- 1. 기본 설정 및 데이터 초기화 ---
-st.set_page_config(page_title="GapFinder AI v5.8", layout="wide")
+st.set_page_config(page_title="GapFinder AI v5.9", layout="wide")
 
 for key in ['brand_text', 'brand_analysis', 'consumer_data', 'consumer_analysis', 'final_report']:
     if key not in st.session_state:
@@ -24,12 +24,6 @@ with st.sidebar:
     serper_key = st.text_input("2. Serper API Key", type="password")
     st.divider()
     menu = st.radio("전략 수립 단계", ["STEP 1. 브랜드 보이스 분석", "STEP 2. 소비자 리얼 보이스 탐색", "STEP 3. 전략적 Gap 도출"])
-    
-    st.subheader("📊 수집 현황")
-    b_status = "✅" if st.session_state['brand_analysis'] else "❌"
-    c_status = "✅" if st.session_state['consumer_analysis'] else "❌"
-    st.write(f"브랜드 분석: {b_status}")
-    st.write(f"소비자 분석: {c_status}")
 
 # --- 3. 핵심 유틸리티 함수 ---
 
@@ -62,56 +56,61 @@ def extract_text(files, url):
 def analyze_ai(content, target_type):
     try:
         client = genai.Client(api_key=gemini_key)
-        prompt = f"당신은 15년차 브랜드 전략가입니다. 다음 {'브랜드 자료' if target_type=='brand' else '소비자 데이터'}를 심층 분석하여 전략 보고서 형태로 작성하세요.\n\n"
+        prompt = f"당신은 15년차 브랜드 전략가입니다. 다음 자료를 심층 분석하여 광고주 보고용 전략 보고서 형태로 상세히 작성하세요.\n\n"
         response = client.models.generate_content(model="gemini-3-flash-preview", contents=prompt + content[:8000])
         return response.text
     except Exception as e: return f"분석 실패: {str(e)}"
 
 def generate_pdf(content_list):
-    """가독성을 극대화한 멀티 폰트 PDF 생성"""
+    """가독성을 극대화하고 에러를 방지한 PDF 생성"""
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
+    
+    # 폰트 경로 확인
+    f_reg = "NanumGothic.ttf"
+    f_bold = "NanumGothicBold.ttf"
+    
+    # 확실한 굵기 구분을 위해 별칭으로 등록
+    has_fonts = False
+    try:
+        if os.path.exists(f_reg) and os.path.exists(f_bold):
+            pdf.add_font('NG-Reg', '', f_reg)
+            pdf.add_font('NG-Bold', '', f_bold)
+            has_fonts = True
+    except: has_fonts = False
+
     pdf.add_page()
     
-    # 폰트 파일명 (깃허브 업로드된 명칭과 일치해야 함)
-    font_reg = "NanumGothic.ttf"
-    font_bold = "NanumGothicBold.ttf"
-    
-    # 폰트 등록
-    try:
-        pdf.add_font('NanumGothic', '', font_reg)
-        pdf.add_font('NanumGothic', 'B', font_bold)
-        pdf.set_font('NanumGothic', size=11)
-        use_custom_font = True
-    except:
-        pdf.set_font("Arial", size=10)
-        use_custom_font = False
-
-    # 리포트 전체 타이틀
-    pdf.set_font('NanumGothic', 'B', 20) if use_custom_font else pdf.set_font("Arial", 'B', 16)
+    # [타이틀]
+    if has_fonts: pdf.set_font('NG-Bold', size=20)
+    else: pdf.set_font("Arial", 'B', 16)
     pdf.set_text_color(0, 51, 102)
     pdf.cell(0, 20, txt="Brand Gap Analysis Strategy Report", ln=True, align='C')
     pdf.ln(10)
 
     for title, body in content_list:
         if body:
-            # 섹션 헤더 디자인
-            pdf.set_fill_color(240, 240, 240) # 연한 회색 배경
+            # [섹션 헤더]
+            pdf.set_fill_color(240, 240, 240)
             pdf.set_text_color(0, 51, 102)
-            pdf.set_font('NanumGothic', 'B', 14) if use_custom_font else pdf.set_font("Arial", 'B', 12)
-            pdf.cell(0, 12, txt=f"  {title}", ln=True, fill=True)
+            if has_fonts: pdf.set_font('NG-Bold', size=14)
+            else: pdf.set_font("Arial", 'B', 12)
+            
+            # None 출력을 방지하기 위해 단독 실행
+            pdf.cell(0, 12, txt=f" {title}", ln=True, fill=True)
             pdf.ln(5)
             
-            # 본문 디자인
+            # [본문]
             pdf.set_text_color(40, 40, 40)
-            pdf.set_font('NanumGothic', '', 10.5) if use_custom_font else pdf.set_font("Arial", size=10)
+            if has_fonts: pdf.set_font('NG-Reg', size=10.5)
+            else: pdf.set_font("Arial", size=10)
             
-            # 특수기호 및 인코딩 처리
+            # 유니코드 특수문자 정제
             safe_body = body.replace('\u2022', '-').replace('\u2013', '-').replace('\u2014', '-').replace('\u2502', '|')
             pdf.multi_cell(0, 7, txt=safe_body)
-            pdf.ln(12) # 섹션 간 충분한 여백
+            pdf.ln(12)
             
-            # 섹션 구분선
+            # 구분선
             pdf.set_draw_color(200, 200, 200)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             pdf.ln(5)
@@ -123,82 +122,76 @@ def generate_pdf(content_list):
 if menu == "STEP 1. 브랜드 보이스 분석":
     st.title("🏢 STEP 1. 브랜드 보이스 심층 분석")
     files = st.file_uploader("브랜드 관련 파일", type=["pdf", "pptx", "xlsx"], accept_multiple_files=True)
-    url = st.text_input("브랜드 공식 웹사이트/상세페이지 URL")
-    if st.button("브랜드 데이터 분석 시작"):
-        if not gemini_key: st.error("Gemini Key를 입력하세요."); st.stop()
-        with st.spinner("브랜드 자산을 심층 분석 중..."):
+    url = st.text_input("브랜드 관련 URL")
+    if st.button("분석 실행"):
+        if not gemini_key: st.error("Gemini Key 입력 필수"); st.stop()
+        with st.spinner("분석 중..."):
             raw = extract_text(files, url)
-            st.session_state['brand_text'] = raw
             st.session_state['brand_analysis'] = analyze_ai(raw, "brand")
-            st.success("완료!")
+            st.rerun() # 화면 갱신해서 None 잔상 제거
     if st.session_state['brand_analysis']: st.markdown(st.session_state['brand_analysis'])
 
 elif menu == "STEP 2. 소비자 리얼 보이스 탐색":
-    st.title("👥 STEP 2. 소비자 언어 및 트렌드 탐색")
-    keywords = st.text_input("분석 키워드 (쉼표 구분)")
-    if st.button("소비자 데이터 수집 및 분석"):
+    st.title("👥 STEP 2. 소비자 리얼 보이스 분석")
+    keywords = st.text_input("검색 키워드 (쉼표 구분)")
+    if st.button("데이터 수집 및 분석"):
         validate_keys()
-        with st.spinner("수집 및 분석 중..."):
+        with st.spinner("탐색 중..."):
             all_res = []
-            kw_list = [k.strip() for k in keywords.split(",")]
-            for kw in kw_list:
+            for kw in [k.strip() for k in keywords.split(",")]:
                 try:
                     res = requests.post("https://google.serper.dev/search", 
                                         headers={'X-API-KEY': serper_key, 'Content-Type': 'application/json'}, 
-                                        json={"q": f"{kw} (site:naver.com OR site:youtube.com OR site:instagram.com) 후기", "gl": "kr", "hl": "ko"}).json()
+                                        json={"q": f"{kw} 후기", "gl": "kr", "hl": "ko"}).json()
                     if 'organic' in res:
                         for r in res['organic']: all_res.append({'title': r.get('title', ''), 'body': r.get('snippet', '')})
                 except: pass
-                time.sleep(0.5)
-            st.session_state['consumer_data'] = all_res
             c_combined = "\n".join([f"{d['title']}: {d['body']}" for d in all_res])
             st.session_state['consumer_analysis'] = analyze_ai(c_combined, "consumer")
-            st.success("완료!")
+            st.rerun()
     if st.session_state['consumer_analysis']: st.markdown(st.session_state['consumer_analysis'])
 
 elif menu == "STEP 3. 전략적 Gap 도출":
-    st.title("🧠 STEP 3. 최종 전략 및 리포트 다운로드")
+    st.title("🧠 STEP 3. 전략 도출 및 다운로드")
     
     if not st.session_state['brand_analysis'] or not st.session_state['consumer_analysis']:
-        st.error("STEP 1, 2 분석을 먼저 완료해주세요.")
+        st.error("이전 단계 분석을 완료해주세요.")
     else:
-        if st.button("🚀 최종 Gap 전략 리포트 생성"):
+        if st.button("🚀 최종 전략 리포트 생성"):
             validate_keys()
-            with st.spinner("전략 리포트 작성 중..."):
+            with st.spinner("최종 전략 수립 중..."):
                 client = genai.Client(api_key=gemini_key)
-                prompt = f"광고 전략가로서 아래 두 데이터를 대조하여 전략 보고서를 작성하세요.\n\n[브랜드 분석]\n{st.session_state['brand_analysis']}\n\n[소비자 분석]\n{st.session_state['consumer_analysis']}"
+                prompt = f"광고 전략가로서 아래 데이터를 대조하여 Gap 리포트를 작성하세요.\n\n[브랜드]\n{st.session_state['brand_analysis']}\n\n[소비자]\n{st.session_state['consumer_analysis']}"
                 st.session_state['final_report'] = client.models.generate_content(model="gemini-3-flash-preview", contents=prompt).text
+                st.rerun()
 
         if st.session_state['final_report']:
             st.markdown("---")
-            st.subheader("📊 최종 전략 리포트")
             st.markdown(st.session_state['final_report'])
             
             st.divider()
-            st.subheader("📥 리포트 다운로드 설정")
+            st.subheader("📥 다운로드 설정")
             
             c1, c2, c3 = st.columns(3)
-            with c1: include_step1 = st.checkbox("STEP 1. 브랜드 분석 포함", value=True)
-            with c2: include_step2 = st.checkbox("STEP 2. 소비자 분석 포함", value=True)
-            with c3: include_step3 = st.checkbox("STEP 3. 최종 전략 포함", value=True)
+            with c1: inc1 = st.checkbox("브랜드 분석 포함", value=True)
+            with c2: inc2 = st.checkbox("소비자 분석 포함", value=True)
+            with c3: inc3 = st.checkbox("최종 전략 포함", value=True)
             
-            export_list = []
-            if include_step1: export_list.append(("STEP 1. BRAND VOICE ANALYSIS", st.session_state['brand_analysis']))
-            if include_step2: export_list.append(("STEP 2. CONSUMER REAL VOICE", st.session_state['consumer_analysis']))
-            if include_step3: export_list.append(("STEP 3. STRATEGIC GAP & COPY", st.session_state['final_report']))
+            # PDF 생성용 데이터 구성 (화면에 None이 출력되지 않도록 변수에만 저장)
+            export_data = []
+            if inc1: export_data.append(("BRAND VOICE ANALYSIS", st.session_state['brand_analysis']))
+            if inc2: export_data.append(("CONSUMER REAL VOICE", st.session_state['consumer_analysis']))
+            if inc3: export_data.append(("STRATEGIC GAP & COPY", st.session_state['final_report']))
             
-            if export_list:
+            if export_data:
                 try:
-                    pdf_output = generate_pdf(export_list)
+                    # PDF 생성 함수 호출 (화면 출력 없이 바이너리만 가져옴)
+                    final_pdf = generate_pdf(export_data)
                     st.download_button(
-                        label="📥 선택한 섹션 PDF 통합 다운로드 (High Quality)",
-                        data=pdf_output,
-                        file_name="Brand_Gap_Strategy_Report.pdf",
+                        label="📥 통합 리포트 PDF 다운로드 (High Quality)",
+                        data=final_pdf,
+                        file_name="Total_Strategy_Report.pdf",
                         mime="application/pdf"
                     )
                 except Exception as e:
-                    st.error(f"PDF 생성 오류: {e}")
-            
-            txt_content = ""
-            for t, b in export_list: txt_content += f"--- {t} ---\n{b}\n\n"
-            st.download_button(label="📄 텍스트(TXT) 파일 다운로드", data=txt_content, file_name="Strategy_Analysis.txt", mime="text/plain")
+                    st.error(f"PDF 생성 중 오류: {e}")
