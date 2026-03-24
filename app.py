@@ -75,4 +75,70 @@ class ProPDF(FPDF):
                 self.set_font(self.font_family_k, 'B', 13); self.set_text_color(0, 102, 204)
                 self.multi_cell(effective_width, 9, txt=line.replace('###', '').strip()); self.ln(1)
             elif line.startswith('##'):
-                self.set_font(self
+                self.set_font(self.font_family_k, 'B', 15); self.set_text_color(0, 51, 102)
+                self.multi_cell(effective_width, 11, txt=line.replace('##', '').strip()); self.ln(2)
+            else:
+                self.set_font(self.font_family_k, '', 10.5); self.set_text_color(50, 50, 50)
+                if '**' in line:
+                    self.set_font(self.font_family_k, 'B', 10.5)
+                    line = line.replace('**', '')
+                
+                clean_line = re.sub(r'[^\u0000-\u007f\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\uac00-\ud7af\ud7b0-\ud7ff]', '', line)
+                self.multi_cell(effective_width, 7, txt=clean_line)
+                self.set_font(self.font_family_k, '', 10.5)
+        
+        # 마지막 줄이 표인 경우 처리
+        if table_data: self.draw_table(table_data)
+
+    def draw_table(self, data):
+        """FPDF2의 table 기능을 활용해 깔끔한 표를 그립니다."""
+        self.set_font(self.font_family_k, '', 9)
+        with self.table(borders_layout="HORIZONTAL_LINES", cell_fill_color=245, cell_fill_mode="ROWS", line_height=8) as t:
+            for data_row in data:
+                row = t.row()
+                for datum in data_row:
+                    row.cell(datum)
+        self.ln(5)
+
+# --- 4. 분석 엔진 (이전과 동일) ---
+def analyze_ai(content, target_type, insight=""):
+    client = genai.Client(api_key=gemini_key)
+    prompt_base = "당신은 광고 기획자입니다. 자기소개는 생략하고 바로 본론부터 마크다운 형식을 사용하여 작성하세요. 특히 Gap 분석은 표(|구분|브랜드|소비자|Gap|) 형식을 사용하세요.\n\n"
+    # (이하 analyze_ai 로직 유지)
+    res = client.models.generate_content(model="gemini-3-flash-preview", contents=prompt_base + "\n\n데이터:\n" + content[:8000])
+    return res.text
+
+# --- 5. 화면 레이아웃 및 다운로드 설정 ---
+# (STEP 1, 2 로직 유지)
+
+elif menu == "STEP 3. 전략 및 통합 PDF":
+    st.title("🧠 최종 전략 및 통합 리포트")
+    # (중략: final_report 생성 로직)
+    
+    if st.session_state['final_report']:
+        st.markdown(st.session_state['final_report'])
+        st.divider()
+        st.subheader("📥 리포트 다운로드 설정")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1: i1 = st.checkbox("자사 분석", value=True)
+        with col2: i2 = st.checkbox("경쟁사 분석", value=True)
+        with col3: i3 = st.checkbox("소비자 분석", value=True)
+        with col4: i4 = st.checkbox("최종 전략", value=True)
+        
+        if st.button("📑 프리미엄 통합 PDF 생성"):
+            export_list = []
+            if i1: export_list.append(("BRAND ANALYSIS", st.session_state['brand_analysis']))
+            if i2: export_list.append(("COMPETITOR ANALYSIS", st.session_state['comp_analysis']))
+            if i3: export_list.append(("CONSUMER REAL VOICE", st.session_state['consumer_analysis']))
+            if i4: export_list.append(("FINAL STRATEGY", st.session_state['final_report']))
+            
+            if export_list:
+                pdf = ProPDF()
+                pdf.add_page()
+                for title, body in export_list:
+                    if body:
+                        pdf.set_fill_color(240, 240, 240)
+                        pdf.set_font(pdf.font_family_k, 'B', 15)
+                        pdf.cell(0, 15, txt=f" {title}", ln=True, fill=True); pdf.ln(5)
+                        pdf.write_smart_text(body); pdf.ln(10)
+                st.download_button("📥 고퀄리티 PDF 다운로드", data=bytes(pdf.output()), file_name="Strategy_Master_Report.pdf")
