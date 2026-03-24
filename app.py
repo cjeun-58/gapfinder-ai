@@ -8,11 +8,11 @@ from bs4 import BeautifulSoup
 from fpdf import FPDF
 import io
 import time
+import os
 
 # --- 1. 기본 설정 및 데이터 초기화 ---
-st.set_page_config(page_title="GapFinder AI v5.5", layout="wide")
+st.set_page_config(page_title="GapFinder AI v5.6", layout="wide")
 
-# 데이터 유지용 세션 상태
 for key in ['brand_text', 'brand_analysis', 'consumer_data', 'consumer_analysis', 'final_report']:
     if key not in st.session_state:
         st.session_state[key] = "" if 'analysis' in key or 'report' in key or 'text' in key else []
@@ -68,37 +68,55 @@ def analyze_ai(content, target_type):
     except Exception as e: return f"분석 실패: {str(e)}"
 
 def generate_pdf(content_list):
-    """선택된 섹션들을 하나의 PDF로 병합하여 생성"""
+    """에러 방지를 극대화한 PDF 생성 함수"""
     pdf = FPDF()
     pdf.add_page()
     
-    font_path = "NanumGothic.ttf"
+    # 폰트 파일 경로 확인 (대소문자 및 경로 체크)
+    font_file = "NanumGothic.ttf"
+    font_ready = os.path.exists(font_file)
+    
     try:
-        pdf.add_font('NanumGothic', '', font_path)
-        pdf.set_font('NanumGothic', size=11)
+        if font_ready:
+            pdf.add_font('NanumGothic', '', font_file)
+            pdf.set_font('NanumGothic', size=11)
+            use_unicode = True
+        else:
+            pdf.set_font("Arial", size=10)
+            use_unicode = False
     except:
         pdf.set_font("Arial", size=10)
+        use_unicode = False
     
     for title, body in content_list:
         if body:
-            # 섹션 제목 (강조)
-            pdf.set_text_color(0, 51, 102) # 진한 파란색
-            pdf.set_font('NanumGothic', size=14) if 'NanumGothic' in pdf.fonts else pdf.set_font("Arial", 'B', 14)
-            pdf.cell(0, 15, txt=f"■ {title}", ln=True)
+            # 섹션 제목 작성 (특수문자 '■' 제거하여 에러 원천 차단)
+            pdf.set_text_color(0, 51, 102)
+            if use_unicode:
+                pdf.set_font('NanumGothic', size=14)
+                pdf.cell(0, 15, txt=f"SECTION: {title}", ln=True)
+            else:
+                pdf.set_font("Arial", 'B', 12)
+                pdf.cell(0, 15, txt=f"SECTION: {title.encode('ascii', 'ignore').decode('ascii') or 'Analysis Step'}", ln=True)
             
-            # 본문
-            pdf.set_text_color(0, 0, 0) # 검정색
-            pdf.set_font('NanumGothic', size=11) if 'NanumGothic' in pdf.fonts else pdf.set_font("Arial", size=11)
-            # 유니코드 에러 방지용 치환
-            safe_body = body.replace('\u2022', '-').replace('\u2013', '-').replace('\u2014', '-')
-            pdf.multi_cell(0, 8, txt=safe_body)
-            pdf.ln(10) # 섹션 간 간격
+            # 본문 작성
+            pdf.set_text_color(0, 0, 0)
+            if use_unicode:
+                pdf.set_font('NanumGothic', size=11)
+                # 유니코드 에러 유발 문자 치환
+                safe_body = body.replace('\u2022', '-').replace('\u2013', '-').replace('\u2014', '-')
+                pdf.multi_cell(0, 8, txt=safe_body)
+            else:
+                pdf.set_font("Arial", size=10)
+                # 폰트 없을 시 한글을 물음표로 치환해서라도 PDF 생성을 강행
+                safe_body = body.encode('latin-1', 'replace').decode('latin-1')
+                pdf.multi_cell(0, 8, txt=safe_body)
+            pdf.ln(10)
             
     return pdf.output()
 
 # --- 4. 메인 로직 ---
 
-# [STEP 1]
 if menu == "STEP 1. 브랜드 보이스 분석":
     st.title("🏢 STEP 1. 브랜드 보이스 심층 분석")
     files = st.file_uploader("브랜드 관련 파일", type=["pdf", "pptx", "xlsx"], accept_multiple_files=True)
@@ -111,7 +129,6 @@ if menu == "STEP 1. 브랜드 보이스 분석":
             st.success("완료!")
     if st.session_state['brand_analysis']: st.markdown(st.session_state['brand_analysis'])
 
-# [STEP 2]
 elif menu == "STEP 2. 소비자 리얼 보이스 탐색":
     st.title("👥 STEP 2. 소비자 언어 및 트렌드 탐색")
     keywords = st.text_input("분석 키워드 (쉼표 구분)")
@@ -133,7 +150,6 @@ elif menu == "STEP 2. 소비자 리얼 보이스 탐색":
             st.success("완료!")
     if st.session_state['consumer_analysis']: st.markdown(st.session_state['consumer_analysis'])
 
-# [STEP 3] 최종 전략 도출 & 멀티 다운로드
 elif menu == "STEP 3. 전략적 Gap 도출":
     st.title("🧠 STEP 3. 최종 전략 및 리포트 다운로드")
     
@@ -152,33 +168,35 @@ elif menu == "STEP 3. 전략적 Gap 도출":
             st.subheader("📊 최종 전략 리포트")
             st.markdown(st.session_state['final_report'])
             
-            # --- 커스텀 다운로드 섹션 ---
             st.divider()
             st.subheader("📥 리포트 다운로드 설정")
-            st.info("PDF에 포함할 분석 단계를 선택하세요.")
             
             c1, c2, c3 = st.columns(3)
             with c1: include_step1 = st.checkbox("STEP 1. 브랜드 분석 포함", value=True)
             with c2: include_step2 = st.checkbox("STEP 2. 소비자 분석 포함", value=True)
             with c3: include_step3 = st.checkbox("STEP 3. 최종 전략 포함", value=True)
             
-            # 선택된 데이터 묶기
             export_list = []
-            if include_step1: export_list.append(("STEP 1. 브랜드 보이스 분석 리포트", st.session_state['brand_analysis']))
-            if include_step2: export_list.append(("STEP 2. 소비자 리얼 보이스 분석 리포트", st.session_state['consumer_analysis']))
-            if include_step3: export_list.append(("STEP 3. 최종 전략적 Gap 분석 리포트", st.session_state['final_report']))
+            if include_step1: export_list.append(("STEP 1. BRAND ANALYSIS", st.session_state['brand_analysis']))
+            if include_step2: export_list.append(("STEP 2. CONSUMER ANALYSIS", st.session_state['consumer_analysis']))
+            if include_step3: export_list.append(("STEP 3. FINAL STRATEGY", st.session_state['final_report']))
             
             if export_list:
-                # PDF 생성
                 try:
                     pdf_bytes = generate_pdf(export_list)
                     st.download_button(
-                        label="📥 선택한 섹션 PDF로 통합 다운로드",
+                        label="📥 선택한 섹션 PDF 통합 다운로드",
                         data=pdf_bytes,
                         file_name="Total_Strategy_Analysis_Report.pdf",
                         mime="application/pdf"
                     )
                 except Exception as e:
-                    st.error(f"PDF 생성 중 오류가 발생했습니다: {e}")
-            else:
-                st.warning("다운로드할 섹션을 최소 하나 이상 선택해주세요.")
+                    st.error(f"PDF 생성 실패: {e}")
+                    st.info("💡 폰트 로드 문제일 수 있습니다. 아래 버튼으로 텍스트 파일을 받으세요.")
+            
+            st.download_button(
+                label="📄 텍스트(TXT) 파일로 안전하게 받기",
+                data=str(export_list),
+                file_name="Strategy_Analysis.txt",
+                mime="text/plain"
+            )
