@@ -11,7 +11,7 @@ import time
 import os
 
 # --- 1. 기본 설정 및 데이터 초기화 ---
-st.set_page_config(page_title="GapFinder AI v5.6", layout="wide")
+st.set_page_config(page_title="GapFinder AI v5.7", layout="wide")
 
 for key in ['brand_text', 'brand_analysis', 'consumer_data', 'consumer_analysis', 'final_report']:
     if key not in st.session_state:
@@ -68,11 +68,10 @@ def analyze_ai(content, target_type):
     except Exception as e: return f"분석 실패: {str(e)}"
 
 def generate_pdf(content_list):
-    """에러 방지를 극대화한 PDF 생성 함수"""
+    """bytearray 에러를 해결한 PDF 생성 함수"""
     pdf = FPDF()
     pdf.add_page()
     
-    # 폰트 파일 경로 확인 (대소문자 및 경로 체크)
     font_file = "NanumGothic.ttf"
     font_ready = os.path.exists(font_file)
     
@@ -90,30 +89,29 @@ def generate_pdf(content_list):
     
     for title, body in content_list:
         if body:
-            # 섹션 제목 작성 (특수문자 '■' 제거하여 에러 원천 차단)
+            # 섹션 제목
             pdf.set_text_color(0, 51, 102)
             if use_unicode:
                 pdf.set_font('NanumGothic', size=14)
                 pdf.cell(0, 15, txt=f"SECTION: {title}", ln=True)
             else:
                 pdf.set_font("Arial", 'B', 12)
-                pdf.cell(0, 15, txt=f"SECTION: {title.encode('ascii', 'ignore').decode('ascii') or 'Analysis Step'}", ln=True)
+                pdf.cell(0, 15, txt=f"SECTION: {title}", ln=True)
             
-            # 본문 작성
+            # 본문
             pdf.set_text_color(0, 0, 0)
             if use_unicode:
                 pdf.set_font('NanumGothic', size=11)
-                # 유니코드 에러 유발 문자 치환
                 safe_body = body.replace('\u2022', '-').replace('\u2013', '-').replace('\u2014', '-')
                 pdf.multi_cell(0, 8, txt=safe_body)
             else:
                 pdf.set_font("Arial", size=10)
-                # 폰트 없을 시 한글을 물음표로 치환해서라도 PDF 생성을 강행
                 safe_body = body.encode('latin-1', 'replace').decode('latin-1')
                 pdf.multi_cell(0, 8, txt=safe_body)
             pdf.ln(10)
             
-    return pdf.output()
+    # [핵심 보정] output()의 결과를 명시적으로 bytes 타입으로 변환
+    return bytes(pdf.output())
 
 # --- 4. 메인 로직 ---
 
@@ -125,6 +123,7 @@ if menu == "STEP 1. 브랜드 보이스 분석":
         if not gemini_key: st.error("Gemini Key를 입력하세요."); st.stop()
         with st.spinner("분석 중..."):
             raw = extract_text(files, url)
+            st.session_state['brand_text'] = raw
             st.session_state['brand_analysis'] = analyze_ai(raw, "brand")
             st.success("완료!")
     if st.session_state['brand_analysis']: st.markdown(st.session_state['brand_analysis'])
@@ -183,20 +182,22 @@ elif menu == "STEP 3. 전략적 Gap 도출":
             
             if export_list:
                 try:
-                    pdf_bytes = generate_pdf(export_list)
+                    pdf_output = generate_pdf(export_list)
                     st.download_button(
                         label="📥 선택한 섹션 PDF 통합 다운로드",
-                        data=pdf_bytes,
+                        data=pdf_output,
                         file_name="Total_Strategy_Analysis_Report.pdf",
                         mime="application/pdf"
                     )
                 except Exception as e:
-                    st.error(f"PDF 생성 실패: {e}")
-                    st.info("💡 폰트 로드 문제일 수 있습니다. 아래 버튼으로 텍스트 파일을 받으세요.")
+                    st.error(f"PDF 생성 오류: {e}")
             
+            # TXT 파일은 언제나 안전하게
+            txt_content = ""
+            for t, b in export_list: txt_content += f"--- {t} ---\n{b}\n\n"
             st.download_button(
                 label="📄 텍스트(TXT) 파일로 안전하게 받기",
-                data=str(export_list),
+                data=txt_content,
                 file_name="Strategy_Analysis.txt",
                 mime="text/plain"
             )
