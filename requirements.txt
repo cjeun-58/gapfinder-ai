@@ -4,3 +4,4 @@ PyPDF2
 requests
 beautifulsoup4
 pandas
+duckduckgo-search
