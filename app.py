@@ -75,47 +75,49 @@ if menu == "STEP 1. 브랜드 데이터 수집":
                 st.success("브랜드 데이터 저장 완료!")
     if st.session_state['brand_summary']: st.info(st.session_state['brand_summary'])
 
-# [STEP 2] 소비자 트렌드 (항공사 정보 원천 차단 로직 적용)
+# --- [STEP 2. 소비자 트렌드 크롤링] ---
 elif menu == "STEP 2. 소비자 트렌드 크롤링":
-    st.title("👥 STEP 2. 소비자 트렌드 수집")
-    keywords = st.text_input("분석 키워드 (쉼표 구분)", placeholder="유리 에어프라이어 후기, 글라스 에어프라이어 단점")
-    manual_input = st.text_area("수동 입력 (직접 복사한 내용이 있다면 여기에)")
+    st.title("👥 STEP 2. 국내 포털 전용 트렌드 수집")
+    st.markdown("네이버, 티스토리 등 한국 주요 사이트의 데이터만 강제로 수집합니다.")
     
-    if st.button("한국어 데이터 수집 시작"):
+    keywords = st.text_input("분석 키워드 (쉼표 구분)", placeholder="유리 에어프라이어 장점, 에어프라이어 유해물질")
+    manual_input = st.text_area("수동 입력 (직접 복사한 내용)")
+    
+    if st.button("한국 포털 데이터 수집 시작"):
         if validate_api_key():
             all_results = []
             if keywords:
                 kw_list = [k.strip() for k in keywords.split(",")]
                 for kw in kw_list:
-                    with st.spinner(f"'{kw}' 수집 중..."):
+                    with st.spinner(f"'{kw}' 국내 사이트 탐색 중..."):
                         try:
                             with DDGS() as ddgs:
-                                # [핵심 변경] 검색어에 '사용 후기 단점'을 강제로 붙여서 항공사 정보가 안 나오게 유도
-                                # region='kr-kr'을 통해 한국 지역 결과만 고정
-                                clean_query = f"{kw} 사용 후기 단점 -항공 -airline"
-                                res = list(ddgs.text(clean_query, region='kr-kr', max_results=7))
-                                all_results.extend(res)
-                            time.sleep(2)
-                        except: st.warning(f"'{kw}' 수집 중 일시적 오류가 발생했습니다.")
+                                # [핵심 변경] site 연산자를 사용하여 한국 주요 도메인만 지정
+                                # 네이버 블로그, 카페, 티스토리 데이터를 우선 타겟팅합니다.
+                                search_query = f"(site:naver.com OR site:tistory.com OR site:daum.net) {kw} 후기"
+                                res = list(ddgs.text(search_query, region='kr-kr', max_results=8))
+                                if res:
+                                    for r in res: r['source_keyword'] = kw
+                                    all_results.extend(res)
+                            time.sleep(2) # 차단 방지를 위한 휴식
+                        except Exception as e:
+                            st.warning(f"'{kw}' 수집 중 오류: {e}")
             
-            if manual_input: all_results.append({'title': '직접 입력 데이터', 'body': manual_input})
-            
+            if manual_input:
+                all_results.append({'title': '직접 입력 데이터', 'body': manual_input, 'source_keyword': '수동'})
+
             if not all_results:
-                st.error("데이터 수집에 실패했습니다. 키워드를 더 구체적으로 적어주세요.")
+                st.error("❌ 국내 사이트에서 데이터를 찾지 못했습니다. 키워드를 더 대중적으로 바꿔보세요.")
             else:
                 st.session_state['consumer_data'] = all_results
-                combined = "\n".join([f"{r.get('title')}: {r.get('body')}" for r in all_results])
-                st.session_state['consumer_summary'] = get_quick_summary(api_key, combined, "소비자")
-                st.success(f"{len(all_results)}건 수집 완료!")
+                combined_c = "\n".join([f"[{r.get('source_keyword')}] {r.get('title')}: {r.get('body')}" for r in all_results])
+                st.session_state['consumer_summary'] = get_quick_summary(api_key, combined_c, "국내 소비자 여론")
+                st.success(f"한국 사이트 데이터 총 {len(all_results)}건 확보 완료!")
 
-    # [원본 데이터 보기 기능 되살리기]
     if st.session_state['consumer_summary']:
-        st.info(f"📝 소비자 여론 요약:\n\n{st.session_state['consumer_summary']}")
-        st.subheader("🔍 수집된 소비자 원본 데이터 (Raw Data)")
-        if st.session_state['consumer_data']:
-            df = pd.DataFrame(st.session_state['consumer_data'])
-            # 항공사 관련 정보가 섞였는지 확인할 수 있도록 표로 노출
-            st.dataframe(df[['title', 'body']], use_container_width=True)
+        st.info(f"📝 한국 소비자 여론 요약:\n\n{st.session_state['consumer_summary']}")
+        st.subheader("🔍 수집된 국내 원본 데이터 (Raw Data)")
+        st.dataframe(pd.DataFrame(st.session_state['consumer_data'])[['source_keyword', 'title', 'body']], use_container_width=True)
 
 # [STEP 3] 최종 분석
 elif menu == "STEP 3. AI 심층 Gap 분석":
