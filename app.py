@@ -11,14 +11,14 @@ import os
 import re
 
 # --- 1. 페이지 설정 및 데이터 초기화 ---
-_ = st.set_page_config(page_title="GapFinder AI v15.1", layout="wide")
+_ = st.set_page_config(page_title="GapFinder AI v15.2", layout="wide")
 
 states = ['brand_analysis', 'brand_insight', 'comp_analysis', 'consumer_data', 'consumer_analysis', 'final_report']
 for key in states:
     if key not in st.session_state:
         st.session_state[key] = [] if 'data' in key else ""
 
-# --- 2. 사이드바 ---
+# --- 2. 사이드바 (실시간 분석 현황) ---
 with st.sidebar:
     st.header("🔑 API 설정")
     gemini_key = st.text_input("1. Gemini API Key", type="password")
@@ -60,23 +60,23 @@ def extract_text(files=None, urls=None):
 
 def analyze_with_evidence(content, target_type, insight="", brand_context="", consumer_raw=""):
     """
-    [v15.1] 자사와 소비자 간의 'Gap' 분석을 강제하고 6.5 스타일의 필승 전략을 도출합니다.
+    [v15.2] 자사 vs 소비자 Gap 분석과 v6.5 스타일 필승 전략을 강제로 도출하는 엔진
     """
     try:
         client = genai.Client(api_key=gemini_key)
-        p_base = "자기소개 생략. 광고 대행사 총괄 기획자로서 분석하세요. 표(|)는 사용하지 말고 리스트 형태로 작성하세요.\n\n"
+        p_base = "인사말 생략. 광고 대행사 총괄 기획자로서 분석하세요. 표(|) 기호는 사용하지 말고 텍스트 리스트로만 작성하세요.\n\n"
         
         prompts = {
-            "brand": f"{p_base}[Thesis] 자사 브랜드 분석. 운영 인사이트({insight})를 반영하여 현재의 소구점을 정의하세요.",
-            "comp": f"{p_base}[Competitor] 경쟁사 분석. 자사({brand_context[:200]})와 대비하여 경쟁사의 한계와 기회 영역(White Space)을 발굴하세요.",
+            "brand": f"{p_base}[Thesis] 자사 브랜드 분석. 운영 인사이트({insight})를 반영하여 현재 소구점을 정의하세요.",
+            "comp": f"{p_base}[Competitor] 경쟁사 분석. 자사({brand_context[:200]}) 대비 경쟁사의 한계와 기회 영역(White Space)을 발굴하세요.",
             "consumer": f"{p_base}[Evidence] 소비자 Raw Voice 분석. 각 페인포인트마다 [데이터 #번] 태그를 붙이세요.",
-            "final": f"{p_base}[Victory Strategy v6.5]\n1. 브랜드 vs 소비자 언어 Gap 분석: 브랜드가 말하는 가치와 소비자가 원하는 실익을 대조하고 그 간극(Gap)을 구체적으로 짚으세요.\n2. 타겟별 DA 카피 및 비주얼 제안: 각 카피마다 [근거: 소비자 언어 '...'] 태그를 명시하세요.\n3. 최종 결론: v6.5 스타일의 'Victory Strategy'를 한 문장으로 강력하게 정의하세요.\n인사이트: {insight}\n소비자 데이터: {consumer_raw[:5000]}"
+            "final": f"{p_base}[Strategic Gap Report]\n1. 브랜드 언어 vs 소비자 언어 Gap 분석: 브랜드가 말하는 거창한 가치와 소비자가 원하는 날것의 실익을 구체적인 워딩(Wording)으로 1:1 대조하세요.\n2. 타겟별 DA 카피 및 비주얼 제안: 각 카피마다 [근거: 소비자 언어 '...'] 태그를 명시하세요.\n3. 최종 결론: v6.5 스타일의 'Victory Strategy'를 한 문장으로 강력하게 정의하세요.\n운영 인사이트: {insight}\n소비자 데이터: {consumer_raw[:5000]}"
         }
         res = client.models.generate_content(model="gemini-3-flash-preview", contents=prompts[target_type] + "\n\n데이터:\n" + content[:12000])
         return res.text
     except Exception as e: return f"분석 오류: {e}"
 
-# --- 4. 무결점 PDF 엔진 (에러 차단 완료) ---
+# --- 4. 무결점 PDF 엔진 (너비 계산 고정) ---
 
 class MasterPDF(FPDF):
     def __init__(self):
@@ -87,8 +87,9 @@ class MasterPDF(FPDF):
         else: self.font_family_k = 'Arial'
         
         _ = self.set_auto_page_break(auto=True, margin=20)
-        # 마진을 넉넉히 설정하여 너비 계산 오류 방지
-        _ = self.set_margins(20, 20, 20)
+        # 마진을 확실하게 설정
+        self.l_m, self.t_m, self.r_m = 20, 20, 20
+        _ = self.set_margins(self.l_m, self.t_m, self.r_m)
 
     def header(self):
         if hasattr(self, 'font_family_k') and self.page_no() == 1:
@@ -96,17 +97,22 @@ class MasterPDF(FPDF):
             _ = self.cell(0, 15, txt="Strategic Gap Analysis Report", ln=True, align='C'); _ = self.ln(5)
 
     def write_smart(self, text):
-        # 0을 사용하면 우측 마진까지 자동으로 채워지며 '공간 부족' 에러를 방지함
+        # [해결] 0 대신 '전체 폭 - 마진'을 계산하여 너비 부족 에러 원천 차단
+        eff_w = self.w - self.l_m - self.r_m
         lines = text.split('\n')
         for line in lines:
             line = line.strip()
             if not line: _ = self.ln(5); continue
             _ = self.set_font(self.font_family_k, '', 10); _ = self.set_text_color(50, 50, 50)
-            if line.startswith('##') or line.startswith('1.') or 'Strategy' in line: 
+            
+            # 헤더 굵게 처리
+            if line.startswith('##') or line.startswith('1.') or 'Strategy' in line or line.startswith('###'): 
                 _ = self.set_font(self.font_family_k, 'B', 12)
+                line = line.replace('###', '').replace('##', '').strip()
+                
             # 특수 기호 정제 및 안전 출력
             clean = re.sub(r'[^\u0000-\u007f\uac00-\ud7af]', '', line.replace('|', ' '))
-            _ = self.multi_cell(0, 7, txt=clean)
+            _ = self.multi_cell(eff_w, 7, txt=clean)
 
 # --- 5. 화면 레이아웃 및 실행 ---
 
@@ -114,7 +120,7 @@ if menu == "STEP 1. 자사 분석 (Thesis)":
     st.title("🏢 STEP 1. 자사 정체성 분석")
     b_f = st.file_uploader("자사 자료 업로드", accept_multiple_files=True)
     b_u = st.text_input("자사 URL")
-    st.session_state['brand_insight'] = st.text_area("💡 운영 인사이트 (피드백 데이터)", value=st.session_state['brand_insight'], height=100)
+    st.session_state['brand_insight'] = st.text_area("💡 운영 인사이트 (피드백)", value=st.session_state['brand_insight'], height=100)
     if st.button("자사 분석 실행"):
         with st.spinner("분석 중..."):
             st.session_state['brand_analysis'] = analyze_with_evidence(extract_text(b_f, [b_u]), "brand", st.session_state['brand_insight'])
@@ -123,7 +129,7 @@ if menu == "STEP 1. 자사 분석 (Thesis)":
 
 elif menu == "STEP 1.5. 경쟁사 Deep-Dive":
     st.title("⚔️ STEP 1.5. 경쟁사 다중 분석")
-    c_f = st.file_uploader("경쟁사 자료 업로드", accept_multiple_files=True)
+    c_f = st.file_uploader("경쟁사 전용 자료", accept_multiple_files=True)
     col1, col2 = st.columns([1, 2])
     with col1: c1_n = st.text_input("경쟁사 1"); c2_n = st.text_input("경쟁사 2")
     with col2: c1_u = st.text_input("경쟁사 1 URL"); c2_u = st.text_input("경쟁사 2 URL")
@@ -176,9 +182,14 @@ elif menu == "STEP 3. 전략 리포트 (Victory Strategy)":
         if i3: _ = exp.append(("CONSUMER DATA EVIDENCE", st.session_state['consumer_analysis']))
         if i4: _ = exp.append(("VICTORY STRATEGY v6.5", st.session_state['final_report']))
         if exp:
-            pdf = MasterPDF(); _ = pdf.add_page()
-            for t, b in exp:
-                _ = pdf.set_fill_color(240, 240, 240); _ = pdf.set_font(pdf.font_family_k, 'B', 12)
-                _ = pdf.cell(0, 10, txt=f" {t}", ln=True, fill=True); _ = pdf.ln(3)
-                _ = pdf.write_smart(b); _ = pdf.ln(8)
-            _ = st.download_button("📥 통합 리포트 PDF 다운로드 (One-Click)", data=bytes(pdf.output()), file_name="Total_Evidence_Report.pdf", mime="application/pdf")
+            # [수정] PDF 생성 로직을 변수화하여 안정성 강화
+            try:
+                pdf = MasterPDF(); _ = pdf.add_page()
+                for t, b in exp:
+                    _ = pdf.set_fill_color(240, 240, 240); _ = pdf.set_font(pdf.font_family_k, 'B', 12)
+                    _ = pdf.cell(0, 10, txt=f" {t}", ln=True, fill=True); _ = pdf.ln(3)
+                    _ = pdf.write_smart(b); _ = pdf.ln(8)
+                pdf_output = bytes(pdf.output())
+                _ = st.download_button("📥 통합 리포트 PDF 다운로드 (One-Click)", data=pdf_output, file_name="Strategy_Master_Report.pdf", mime="application/pdf")
+            except Exception as e:
+                st.error(f"PDF 생성 중 오류 발생: {e}")
