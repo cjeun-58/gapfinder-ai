@@ -10,15 +10,15 @@ import io
 import os
 import re
 
-# --- 1. 페이지 설정 및 데이터 초기화 ---
-_ = st.set_page_config(page_title="GapFinder AI v15.2", layout="wide")
+# --- 1. 초기 설정 및 세션 관리 ---
+_ = st.set_page_config(page_title="GapFinder AI v17.0", layout="wide")
 
 states = ['brand_analysis', 'brand_insight', 'comp_analysis', 'consumer_data', 'consumer_analysis', 'final_report']
 for key in states:
     if key not in st.session_state:
         st.session_state[key] = [] if 'data' in key else ""
 
-# --- 2. 사이드바 (실시간 분석 현황) ---
+# --- 2. 사이드바 메뉴 ---
 with st.sidebar:
     st.header("🔑 API 설정")
     gemini_key = st.text_input("1. Gemini API Key", type="password")
@@ -28,168 +28,117 @@ with st.sidebar:
         "STEP 1. 자사 분석 (Thesis)", 
         "STEP 1.5. 경쟁사 Deep-Dive", 
         "STEP 2. 소비자 데이터 (Evidence)", 
-        "STEP 3. 전략 리포트 (Victory Strategy)"
+        "STEP 3. 하이브리드 전략 리포트"
     ])
-    _ = st.divider()
-    st.subheader("📊 분석 현황")
-    st.write(f"🏢 자사: {'✅' if st.session_state['brand_analysis'] else '❌'}")
-    st.write(f"⚔️ 경쟁사: {'✅' if st.session_state['comp_analysis'] else '❌'}")
-    st.write(f"👥 소비자: {'✅' if st.session_state['consumer_analysis'] else '❌'}")
 
-# --- 3. 유틸리티 함수 ---
+# --- 3. 핵심 분석 엔진 (Gap 분석 및 v6.5 결론 강화) ---
 
-def extract_text(files=None, urls=None):
-    text = ""
-    if files:
-        for f in files:
-            try:
-                if f.name.endswith(".pdf"): text += "\n".join([p.extract_text() for p in PdfReader(f).pages if p.extract_text()])
-                elif f.name.endswith(".pptx"): text += "\n".join([s.text for slide in Presentation(f).slides for s in slide.shapes if hasattr(s, "text")])
-                elif f.name.endswith(".xlsx"): text += pd.read_excel(f).to_string()
-            except Exception: pass
-    if urls:
-        for url in urls:
-            if url and url.strip():
-                try:
-                    res = requests.get(url.strip(), headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-                    soup = BeautifulSoup(res.text, 'html.parser')
-                    for s in soup(['script', 'style']): s.decompose()
-                    text += f"\n[참조 데이터: {url}]\n{soup.get_text()[:3000]}"
-                except Exception: pass
-    return text
-
-def analyze_with_evidence(content, target_type, insight="", brand_context="", consumer_raw=""):
-    """
-    [v15.2] 자사 vs 소비자 Gap 분석과 v6.5 스타일 필승 전략을 강제로 도출하는 엔진
-    """
+def analyze_hybrid_v17(content, target_type, insight="", brand_context="", consumer_raw=""):
     try:
         client = genai.Client(api_key=gemini_key)
-        p_base = "인사말 생략. 광고 대행사 총괄 기획자로서 분석하세요. 표(|) 기호는 사용하지 말고 텍스트 리스트로만 작성하세요.\n\n"
+        p_base = "인사말 생략. 광고 대행사 총괄 기획자로서 분석하세요. 표 기호(|)는 사용하지 말고 불렛 포인트 리스트로만 작성하세요.\n\n"
         
         prompts = {
             "brand": f"{p_base}[Thesis] 자사 브랜드 분석. 운영 인사이트({insight})를 반영하여 현재 소구점을 정의하세요.",
-            "comp": f"{p_base}[Competitor] 경쟁사 분석. 자사({brand_context[:200]}) 대비 경쟁사의 한계와 기회 영역(White Space)을 발굴하세요.",
-            "consumer": f"{p_base}[Evidence] 소비자 Raw Voice 분석. 각 페인포인트마다 [데이터 #번] 태그를 붙이세요.",
-            "final": f"{p_base}[Strategic Gap Report]\n1. 브랜드 언어 vs 소비자 언어 Gap 분석: 브랜드가 말하는 거창한 가치와 소비자가 원하는 날것의 실익을 구체적인 워딩(Wording)으로 1:1 대조하세요.\n2. 타겟별 DA 카피 및 비주얼 제안: 각 카피마다 [근거: 소비자 언어 '...'] 태그를 명시하세요.\n3. 최종 결론: v6.5 스타일의 'Victory Strategy'를 한 문장으로 강력하게 정의하세요.\n운영 인사이트: {insight}\n소비자 데이터: {consumer_raw[:5000]}"
+            "comp": f"{p_base}[Competitor] 경쟁사 분석. 자사({brand_context[:200]}) 대비 경쟁사의 한계와 화이트스페이스를 도출하세요.",
+            "consumer": f"{p_base}[Evidence] 소비자 Raw Voice 분석. 각 페인포인트에 [데이터 #번] 태그를 붙이세요.",
+            "final": f"{p_base}[Strategic Gap Report]\n1. GAP FINDER (언어 대조): 브랜드가 말하는 '가치'와 소비자가 원하는 '실속'을 구체적인 워딩으로 1:1 대조 분석하세요.\n2. 타겟별 DA 카피: 각 카피마다 [근거: 소비자 언어 '...']를 명시하세요.\n3. Victory Strategy v6.5: '거부감을 자부심으로 전환'하는 식의 선언적 필승 전략을 한 문장으로 정의하세요.\n인사이트: {insight}\n소비자 데이터: {consumer_raw[:6000]}"
         }
         res = client.models.generate_content(model="gemini-3-flash-preview", contents=prompts[target_type] + "\n\n데이터:\n" + content[:12000])
         return res.text
     except Exception as e: return f"분석 오류: {e}"
 
-# --- 4. 무결점 PDF 엔진 (너비 계산 고정) ---
+# --- 4. 무결점 PDF 엔진 (잘림 방지 최적화) ---
 
-class MasterPDF(FPDF):
+class PiecePDF(FPDF):
     def __init__(self):
         super().__init__()
         f_reg, f_bold = "NanumGothic.ttf", "NanumGothicBold.ttf"
-        if os.path.exists(f_reg) and os.path.exists(f_bold):
-            self.add_font('NG', '', f_reg); self.add_font('NG', 'B', f_bold); self.font_family_k = 'NG'
-        else: self.font_family_k = 'Arial'
-        
+        if os.path.exists(f_reg):
+            self.add_font('NG', '', f_reg); self.add_font('NG', 'B', f_bold); self.fn = 'NG'
+        else: self.fn = 'Arial'
         _ = self.set_auto_page_break(auto=True, margin=20)
-        # 마진을 확실하게 설정
-        self.l_m, self.t_m, self.r_m = 20, 20, 20
-        _ = self.set_margins(self.l_m, self.t_m, self.r_m)
+        _ = self.set_margins(20, 20, 20)
 
     def header(self):
-        if hasattr(self, 'font_family_k') and self.page_no() == 1:
-            _ = self.set_font(self.font_family_k, 'B', 18); _ = self.set_text_color(0, 51, 102)
-            _ = self.cell(0, 15, txt="Strategic Gap Analysis Report", ln=True, align='C'); _ = self.ln(5)
+        if self.page_no() == 1:
+            self.set_font(self.fn, 'B', 18); self.set_text_color(0, 51, 102)
+            self.cell(170, 15, txt="Strategic Hybrid Strategy Report", ln=True, align='C'); self.ln(5)
 
-    def write_smart(self, text):
-        # [해결] 0 대신 '전체 폭 - 마진'을 계산하여 너비 부족 에러 원천 차단
-        eff_w = self.w - self.l_m - self.r_m
+    def write_safe(self, text):
         lines = text.split('\n')
         for line in lines:
             line = line.strip()
-            if not line: _ = self.ln(5); continue
-            _ = self.set_font(self.font_family_k, '', 10); _ = self.set_text_color(50, 50, 50)
-            
-            # 헤더 굵게 처리
-            if line.startswith('##') or line.startswith('1.') or 'Strategy' in line or line.startswith('###'): 
-                _ = self.set_font(self.font_family_k, 'B', 12)
-                line = line.replace('###', '').replace('##', '').strip()
-                
-            # 특수 기호 정제 및 안전 출력
+            if not line: self.ln(5); continue
+            self.set_font(self.fn, '', 10); self.set_text_color(50, 50, 50)
+            if line.startswith('##') or line.startswith('1.') or 'Strategy' in line: 
+                self.set_font(self.fn, 'B', 12)
+                line = line.replace('##', '').strip()
+            # 특수 기호 정제 및 170mm 폭 강제 지정 (잘림 방지 핵심)
             clean = re.sub(r'[^\u0000-\u007f\uac00-\ud7af]', '', line.replace('|', ' '))
-            _ = self.multi_cell(eff_w, 7, txt=clean)
+            self.multi_cell(170, 7, txt=clean)
 
-# --- 5. 화면 레이아웃 및 실행 ---
+# --- 5. 단계별 실행 로직 ---
 
 if menu == "STEP 1. 자사 분석 (Thesis)":
-    st.title("🏢 STEP 1. 자사 정체성 분석")
-    b_f = st.file_uploader("자사 자료 업로드", accept_multiple_files=True)
+    st.title("🏢 STEP 1. 자사 정체성 및 인사이트")
     b_u = st.text_input("자사 URL")
-    st.session_state['brand_insight'] = st.text_area("💡 운영 인사이트 (피드백)", value=st.session_state['brand_insight'], height=100)
-    if st.button("자사 분석 실행"):
-        with st.spinner("분석 중..."):
-            st.session_state['brand_analysis'] = analyze_with_evidence(extract_text(b_f, [b_u]), "brand", st.session_state['brand_insight'])
-            _ = st.rerun()
+    st.session_state['brand_insight'] = st.text_area("💡 운영 인사이트", value=st.session_state['brand_insight'], height=100)
+    if st.button("분석 실행"):
+        st.session_state['brand_analysis'] = analyze_hybrid_v17(b_u, "brand", st.session_state['brand_insight'])
+        _ = st.rerun()
     if st.session_state['brand_analysis']: st.markdown(st.session_state['brand_analysis'])
 
 elif menu == "STEP 1.5. 경쟁사 Deep-Dive":
-    st.title("⚔️ STEP 1.5. 경쟁사 다중 분석")
-    c_f = st.file_uploader("경쟁사 전용 자료", accept_multiple_files=True)
+    st.title("⚔️ STEP 1.5. 경쟁사 정밀 분석")
     col1, col2 = st.columns([1, 2])
-    with col1: c1_n = st.text_input("경쟁사 1"); c2_n = st.text_input("경쟁사 2")
-    with col2: c1_u = st.text_input("경쟁사 1 URL"); c2_u = st.text_input("경쟁사 2 URL")
+    with col1: c1n = st.text_input("경쟁사 1")
+    with col2: c1u = st.text_input("경쟁사 1 URL")
     if st.button("경쟁사 분석"):
-        with st.spinner("탐색 중..."):
-            all_c = extract_text(c_f, [c1_u, c2_u])
-            for n in [c1_n, c2_n]:
-                if n:
-                    res = requests.post("https://google.serper.dev/search", headers={'X-API-KEY': serper_key}, json={"q": f"{n} 특징 마케팅", "gl": "kr", "hl": "ko"}).json()
-                    all_c += f"\n[{n}]\n" + "\n".join([r.get('snippet', '') for r in res.get('organic', [])])
-            st.session_state['comp_analysis'] = analyze_with_evidence(all_c, "comp", brand_context=st.session_state['brand_analysis'])
-            _ = st.rerun()
+        res = requests.post("https://google.serper.dev/search", headers={'X-API-KEY': serper_key}, json={"q": f"{c1n} 특징 마케팅", "gl": "kr", "hl": "ko"}).json()
+        all_c = f"[{c1n}]\n" + "\n".join([r.get('snippet', '') for r in res.get('organic', [])])
+        st.session_state['comp_analysis'] = analyze_hybrid_v17(all_c, "comp", brand_context=st.session_state['brand_analysis'])
+        _ = st.rerun()
     if st.session_state['comp_analysis']: st.markdown(st.session_state['comp_analysis'])
 
 elif menu == "STEP 2. 소비자 데이터 (Evidence)":
-    st.title("👥 STEP 2. 소비자 데이터 수집 및 태깅")
-    kw = st.text_input("분석 키워드")
+    st.title("👥 STEP 2. 소비자 보이스 수집")
+    kw = st.text_input("키워드")
     if st.button("데이터 수집"):
-        with st.spinner("수집 중..."):
-            all_r = []
-            for qs in ["후기", "단점", "실망"]:
-                res = requests.post("https://google.serper.dev/search", headers={'X-API-KEY': serper_key}, json={"q": f"{kw} {qs}", "num": 15, "gl": "kr", "hl": "ko"}).json()
-                if 'organic' in res: all_r.extend([{'title': r.get('title'), 'body': r.get('snippet')} for r in res['organic']])
-            st.session_state['consumer_data'] = all_r
-            st.session_state['consumer_analysis'] = analyze_with_evidence(str(all_r), "consumer")
-            _ = st.rerun()
+        res = requests.post("https://google.serper.dev/search", headers={'X-API-KEY': serper_key}, json={"q": kw + " 후기 단점", "num": 15, "gl": "kr", "hl": "ko"}).json()
+        all_r = [{'title': r.get('title'), 'body': r.get('snippet')} for r in res.get('organic', [])]
+        st.session_state['consumer_data'] = all_r
+        st.session_state['consumer_analysis'] = analyze_hybrid_v17(str(all_r), "consumer")
+        _ = st.rerun()
     if st.session_state['consumer_analysis']: 
         st.markdown(st.session_state['consumer_analysis'])
         _ = st.dataframe(pd.DataFrame(st.session_state['consumer_data']), use_container_width=True)
 
-elif menu == "STEP 3. 전략 리포트 (Victory Strategy)":
-    st.title("🧠 STEP 3. 에비던스 기반 Victory Strategy")
+elif menu == "STEP 3. 하이브리드 전략 리포트":
+    st.title("🧠 STEP 3. GAP FINDER & Victory Strategy")
     if st.button("🚀 통합 전략 리포트 도출"):
-        with st.spinner("Gap 분석 및 전략 합성 중..."):
-            comb = f"자사:{st.session_state['brand_analysis']}\n경쟁사:{st.session_state['comp_analysis']}\n소비자:{st.session_state['consumer_analysis']}"
-            st.session_state['final_report'] = analyze_with_evidence(comb, "final", st.session_state['brand_insight'], consumer_raw=str(st.session_state['consumer_data']))
-            _ = st.rerun()
+        comb = f"자사:{st.session_state['brand_analysis']}\n경쟁사:{st.session_state['comp_analysis']}\n소비자:{st.session_state['consumer_analysis']}"
+        st.session_state['final_report'] = analyze_hybrid_v17(comb, "final", st.session_state['brand_insight'], consumer_raw=str(st.session_state['consumer_data']))
+        _ = st.rerun()
+    
     if st.session_state['final_report']:
         st.markdown(st.session_state['final_report'])
-        _ = st.divider()
-        st.subheader("📥 선택 리포트 통합 다운로드")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: i1 = st.checkbox("자사", value=True)
-        with c2: i2 = st.checkbox("경쟁사", value=True)
-        with c3: i3 = st.checkbox("소비자", value=True)
-        with c4: i4 = st.checkbox("최종전략", value=True)
-        exp = []
-        if i1: _ = exp.append(("BRAND ANALYSIS", st.session_state['brand_analysis']))
-        if i2: _ = exp.append(("COMPETITOR ANALYSIS", st.session_state['comp_analysis']))
-        if i3: _ = exp.append(("CONSUMER DATA EVIDENCE", st.session_state['consumer_analysis']))
-        if i4: _ = exp.append(("VICTORY STRATEGY v6.5", st.session_state['final_report']))
-        if exp:
-            # [수정] PDF 생성 로직을 변수화하여 안정성 강화
+        st.divider()
+        st.subheader("📥 리포트 다운로드 (안전 시스템)")
+        exp = [("BRAND", st.session_state['brand_analysis']), ("COMPETITOR", st.session_state['comp_analysis']), 
+               ("CONSUMER", st.session_state['consumer_analysis']), ("STRATEGY", st.session_state['final_report'])]
+        
+        c_pd, c_tx = st.columns(2)
+        with c_pd:
             try:
-                pdf = MasterPDF(); _ = pdf.add_page()
+                pdf = PiecePDF(); _ = pdf.add_page()
                 for t, b in exp:
-                    _ = pdf.set_fill_color(240, 240, 240); _ = pdf.set_font(pdf.font_family_k, 'B', 12)
-                    _ = pdf.cell(0, 10, txt=f" {t}", ln=True, fill=True); _ = pdf.ln(3)
-                    _ = pdf.write_smart(b); _ = pdf.ln(8)
-                pdf_output = bytes(pdf.output())
-                _ = st.download_button("📥 통합 리포트 PDF 다운로드 (One-Click)", data=pdf_output, file_name="Strategy_Master_Report.pdf", mime="application/pdf")
-            except Exception as e:
-                st.error(f"PDF 생성 중 오류 발생: {e}")
+                    _ = pdf.set_fill_color(240, 240, 240); _ = pdf.set_font(pdf.fn, 'B', 12)
+                    _ = pdf.cell(170, 10, txt=f" {t}", ln=True, fill=True); _ = pdf.ln(3)
+                    _ = pdf.write_safe(b); _ = pdf.ln(8)
+                st.download_button("📥 PDF 다운로드 (잘림 방지)", data=bytes(pdf.output()), file_name="Strategy_Master.pdf", mime="application/pdf")
+            except: st.error("PDF 생성 중 일시적 오류가 발생했습니다. 텍스트 파일을 이용해주세요.")
+        with c_tx:
+            full_txt = ""
+            for t, b in exp: full_txt += f"[{t}]\n{b}\n\n"
+            st.download_button("📥 텍스트 파일 다운로드 (.txt)", data=full_txt, file_name="Strategy_Master.txt", mime="text/plain")
