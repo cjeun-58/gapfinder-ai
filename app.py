@@ -13,7 +13,7 @@ import re
 # --- 1. 페이지 설정 및 데이터 초기화 ---
 _ = st.set_page_config(page_title="GapFinder AI v19.0", layout="wide")
 
-# 세션 상태 초기화 (사이드바 ✅ 표시용)
+# 세션 상태 초기화 (사이드바 ✅ 표시 및 데이터 유지)
 states = ['brand_analysis', 'brand_insight', 'comp_analysis', 'consumer_data', 'consumer_analysis', 'final_report']
 for key in states:
     if key not in st.session_state:
@@ -66,13 +66,13 @@ def analyze_ai(content, target_type, insight="", brand_context="", consumer_raw=
     """v6.5의 직관적 결론과 데이터 근거를 결합한 분석 엔진"""
     try:
         client = genai.Client(api_key=gemini_key)
-        p_base = "자기소개 생략. 광고 기획자로서 리스트 형식으로 분석하세요. 모든 제언 뒤에 [데이터 #번] 태그를 붙이세요.\n\n"
+        p_base = "자기소개 생략. 광고 기획자로서 리스트 형식으로 분석하세요. 모든 제언 뒤에 [근거: 소비자 언어 '...'] 태그를 붙이세요.\n\n"
         
         prompts = {
             "brand": f"{p_base}[Thesis] 자사 브랜드 정체성 및 인사이트 분석. 인사이트: {insight}",
             "comp": f"{p_base}[Competitor] 오직 입력된 경쟁사만 분석하세요. 임의로 다른 브랜드를 추가하지 마세요. 자사({brand_context[:200]})와의 1:1 차별점에 집중하세요.",
             "consumer": f"{p_base}[Evidence] 소비자 Raw Voice 분석. 페인포인트별로 번호를 부여하세요.",
-            "final": f"{p_base}[Victory Strategy]\n1. 브랜드 vs 소비자 언어 Gap 분석 (1:1 대조)\n2. 경쟁사 대비 White Space 도출\n3. 타겟별 DA 카피 (소비자 워딩 인용)\n4. 최종 결론: v6.5 스타일 필승 전략 정의\n자사 인사이트: {insight}\n소비자 데이터: {consumer_raw[:5000]}"
+            "final": f"{p_base}[Victory Strategy]\n1. 브랜드 언어 vs 소비자 언어 Gap 분석: 브랜드의 가치(Value)와 소비자의 실속(Utility)을 1:1 워딩 대조를 통해 분석하세요.\n2. 경쟁사 대비 White Space 도출\n3. 타겟별 DA 카피 (소비자 워딩 인용)\n4. 최종 결론: v6.5 스타일 필승 전략 정의\n자사 인사이트: {insight}\n소비자 데이터: {consumer_raw[:5000]}"
         }
         res = client.models.generate_content(model="gemini-3-flash-preview", contents=prompts[target_type] + "\n\n데이터:\n" + content[:12000])
         return res.text
@@ -83,14 +83,13 @@ def analyze_ai(content, target_type, insight="", brand_context="", consumer_raw=
 class SafePDF(FPDF):
     def __init__(self):
         super().__init__()
-        # 폰트 로드 (나눔고딕 필수)
         f_reg, f_bold = "NanumGothic.ttf", "NanumGothicBold.ttf"
         if os.path.exists(f_reg):
             self.add_font('NG', '', f_reg); self.add_font('NG', 'B', f_bold); self.fn = 'NG'
         else: self.fn = 'Arial'
         
         _ = self.set_auto_page_break(auto=True, margin=20)
-        self.l_m, self.r_m = 25, 25 # 마진을 넓게 설정하여 안전성 확보
+        self.l_m, self.r_m = 25, 25 
         _ = self.set_margins(self.l_m, 20, self.r_m)
 
     def header(self):
@@ -99,8 +98,7 @@ class SafePDF(FPDF):
             self.cell(160, 15, txt="Strategic Gap Analysis Report", ln=True, align='C'); self.ln(5)
 
     def write_text(self, text):
-        # [핵심] 너비를 160mm로 엄격히 제한하여 잘림 방지
-        eff_w = 160 
+        eff_w = 160 # 고정 너비로 잘림 원천 차단
         lines = text.split('\n')
         for line in lines:
             line = line.strip()
@@ -108,7 +106,7 @@ class SafePDF(FPDF):
             self.set_font(self.fn, '', 10); self.set_text_color(50, 50, 50)
             if line.startswith('#') or line.startswith('1.') or 'Strategy' in line: 
                 self.set_font(self.fn, 'B', 12)
-            # 깨질 수 있는 특수문자 제거
+            # 특수 기호 정제 및 안전 출력
             clean = re.sub(r'[^\u0000-\u007f\uac00-\ud7af]', '', line.replace('|', ' '))
             self.multi_cell(eff_w, 7, txt=clean)
 
@@ -118,7 +116,7 @@ if menu == "STEP 1. 자사 분석 (Thesis)":
     st.title("🏢 STEP 1. 자사 정체성 분석")
     b_f = st.file_uploader("자사 자료 업로드 (PDF, PPTX 등)", accept_multiple_files=True)
     b_u = st.text_input("자사 URL")
-    st.session_state['brand_insight'] = st.text_area("💡 운영 인사이트 (과거 데이터 등)", value=st.session_state['brand_insight'], height=100)
+    st.session_state['brand_insight'] = st.text_area("💡 운영 인사이트 (과거 데이터 피드백 등)", value=st.session_state['brand_insight'], height=100)
     if st.button("자사 분석 실행"):
         with st.spinner("분석 중..."):
             st.session_state['brand_analysis'] = analyze_ai(extract_text(b_f, [b_u]), "brand", st.session_state['brand_insight'])
@@ -128,17 +126,16 @@ if menu == "STEP 1. 자사 분석 (Thesis)":
 elif menu == "STEP 1.5. 경쟁사 분석 (3 Sets)":
     st.title("⚔️ STEP 1.5. 경쟁사 3세트 분석")
     c_f = st.file_uploader("경쟁사 자료 업로드", accept_multiple_files=True)
-    # [복구] 경쟁사 3개 슬롯
     col1, col2 = st.columns([1, 2])
     with col1: c1n = st.text_input("경쟁사 1 이름"); c2n = st.text_input("경쟁사 2 이름"); c3n = st.text_input("경쟁사 3 이름")
     with col2: c1u = st.text_input("경쟁사 1 URL"); c2u = st.text_input("경쟁사 2 URL"); c3u = st.text_input("경쟁사 3 URL")
     
     if st.button("경쟁사 분석 실행"):
-        with st.spinner("지정된 브랜드만 분석 중..."):
+        with st.spinner("지정 브랜드만 분석 중..."):
             all_c = extract_text(c_f, [c1u, c2u, c3u])
             for n in [c1n, c2n, c3n]:
                 if n:
-                    res = requests.post("https://google.serper.dev/search", headers={'X-API-KEY': serper_key}, json={"q": f"{n} 특징 마케팅", "gl": "kr", "hl": "ko"}).json()
+                    res = requests.post("https://google.serper.dev/search", headers={'X-API-KEY': serper_key}, json={"q": f"{n} 마케팅 소구점", "gl": "kr", "hl": "ko"}).json()
                     if 'organic' in res: all_c += f"\n[{n}]\n" + "\n".join([r.get('snippet', '') for r in res['organic']])
             st.session_state['comp_analysis'] = analyze_ai(all_c, "comp", brand_context=st.session_state['brand_analysis'])
             _ = st.rerun()
@@ -175,9 +172,7 @@ elif menu == "STEP 3. 최종 전략 및 PDF":
     if st.session_state['final_report']:
         st.markdown(st.session_state['final_report'])
         _ = st.divider()
-        st.subheader("📥 리포트 다운로드 (안전 모드)")
-        
-        # 다운로드 데이터 준비
+        st.subheader("📥 리포트 다운로드")
         export_list = [("BRAND", st.session_state['brand_analysis']), ("COMPETITOR", st.session_state['comp_analysis']), 
                        ("CONSUMER", st.session_state['consumer_analysis']), ("STRATEGY", st.session_state['final_report'])]
         
@@ -190,10 +185,10 @@ elif menu == "STEP 3. 최종 전략 및 PDF":
                         _ = pdf.set_fill_color(240, 240, 240); _ = pdf.set_font(pdf.fn, 'B', 12)
                         _ = pdf.cell(160, 10, txt=f" {t}", ln=True, fill=True); _ = pdf.ln(3)
                         _ = pdf.write_text(b); _ = pdf.ln(8)
-                st.download_button("📥 PDF 다운로드 (잘림 방지)", data=bytes(pdf.output()), file_name="Strategy_Report.pdf", mime="application/pdf")
+                st.download_button("📥 PDF 다운로드", data=bytes(pdf.output()), file_name="Strategy_Report.pdf", mime="application/pdf")
             except Exception as e:
-                st.error(f"PDF 생성 오류: {e}")
+                st.error(f"PDF 오류: {e}")
         with col_txt:
             full_txt = ""
             for t, b in export_list: full_txt += f"[{t}]\n{b}\n\n"
-            st.download_button("📥 텍스트 파일 다운로드 (.txt)", data=full_txt, file_name="Strategy_Report.txt", mime="text/plain")
+            st.download_button("📥 텍스트 파일(.txt) 다운로드", data=full_txt, file_name="Strategy_Report.txt", mime="text/plain")
